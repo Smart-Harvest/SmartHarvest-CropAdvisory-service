@@ -1,0 +1,134 @@
+# ════════════════════════════════════════════════════════════
+# SmartHarvest — Crop Advisory Service CI/CD
+# ════════════════════════════════════════════════════════════
+# PR:      code-quality + trivy scan (soft) → STOP
+# develop: code-quality + trivy scan (strict) → publish → cd (values-dev.yaml)
+# main:    retag SHA→semver (NO rebuild) → cd (values-prod.yaml)
+# ════════════════════════════════════════════════════════════
+name: CI/CD — Crop Advisory Service
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: write
+
+jobs:
+
+  # ═══════════════════════════════════════════════════════════
+  # 1. CODE QUALITY (PR + develop only)
+  # ═══════════════════════════════════════════════════════════
+  sast:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_sast.yml@develop
+    with:
+      service-path: .
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_URL: ${{ secrets.SONAR_URL }}
+
+  sca:
+    needs: [sast]
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_sca.yml@develop
+    with:
+      service-name: crop-advisory-service
+      service-path: .
+      runtime: python
+    secrets:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # ═══════════════════════════════════════════════════════════
+  # 2. DOCKER BUILD + TRIVY SCAN
+  # ═══════════════════════════════════════════════════════════
+
+  # PR — soft scan (fail-on-critical=0)
+  trivy-pr:
+    needs: [sca]
+    if: github.event_name == 'pull_request'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-build.yml@develop
+    with:
+      service-name: crop-advisory-service
+      service-path: .
+      fail-on-critical: "0"
+
+  # develop — strict scan (fail-on-critical=1)
+  trivy-develop:
+    needs: [sca]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-build.yml@develop
+    with:
+      service-name: crop-advisory-service
+      service-path: .
+      fail-on-critical: "1"
+
+  # ═══════════════════════════════════════════════════════════
+  # 3. PR QUALITY GATE
+  # ═══════════════════════════════════════════════════════════
+  pr-check:
+    name: PR Quality Gate
+    needs: [sast, sca, trivy-pr]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "✅ All PR checks passed"
+
+  # ═══════════════════════════════════════════════════════════
+  # 4. DOCKER PUBLISH
+  # ═══════════════════════════════════════════════════════════
+
+  # develop — build + push SHA-tagged image
+  publish-develop:
+    needs: [trivy-develop]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
+    with:
+      service-name: crop-advisory-service
+      service-path: .
+      environment: develop
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  # main — pull SHA image → retag to semver → push (NO rebuild)
+  publish-main:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
+    with:
+      service-name: crop-advisory-service
+      service-path: .
+      environment: main
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  # ═══════════════════════════════════════════════════════════
+  # 5. CD — Update Helm Values (triggers ArgoCD auto-sync)
+  # ═══════════════════════════════════════════════════════════
+
+  # develop → values/values-dev.yaml
+  cd-develop:
+    needs: [publish-develop]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
+    with:
+      service-name: crop-advisory-service
+      image-tag: dev-${{ github.sha }}
+      environment: develop
+    secrets:
+      HELM_REPO_PAT: ${{ secrets.HELM_REPO_PAT }}
+
+  # main → values/values-prod.yaml
+  cd-main:
+    needs: [publish-main]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
+    with:
+      service-name: crop-advisory-service
+      image-tag: ${{ needs.publish-main.outputs.image-tag }}
+      environment: main
+    secrets:
+      HELM_REPO_PAT: ${{ secrets.HELM_REPO_PAT }}
