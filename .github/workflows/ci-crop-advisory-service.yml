@@ -12,6 +12,8 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
+   release:
+    types: [created]
 
 permissions:
   contents: write
