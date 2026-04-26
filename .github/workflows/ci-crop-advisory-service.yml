@@ -12,7 +12,7 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
-   release:
+  release:
     types: [created]
 
 permissions:
