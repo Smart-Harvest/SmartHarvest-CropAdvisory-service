@@ -4,6 +4,7 @@
 # PR:      code-quality + trivy scan (soft) → STOP
 # develop: code-quality + trivy scan (strict) → publish → cd (values-dev.yaml)
 # main:    retag SHA→semver (NO rebuild) → cd (values-prod.yaml)
+# release: publish release-tagged image → cd (values-prod.yaml)
 # ════════════════════════════════════════════════════════════
 name: CI/CD — Crop Advisory Service
 
@@ -131,6 +132,34 @@ jobs:
     with:
       service-name: crop-advisory-service
       image-tag: ${{ needs.publish-main.outputs.image-tag }}
+      environment: main
+    secrets:
+      HELM_REPO_PAT: ${{ secrets.HELM_REPO_PAT }}
+
+  # ═══════════════════════════════════════════════════════════
+  # 6. RELEASE — Tag-based prod deployment (e.g., v1.0.0)
+  # ═══════════════════════════════════════════════════════════
+
+  # release → build + push release-tagged image
+  publish-release:
+    if: github.event_name == 'release'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
+    with:
+      service-name: crop-advisory-service
+      service-path: .
+      environment: main
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  # release → values/values-prod.yaml
+  cd-release:
+    needs: [publish-release]
+    if: github.event_name == 'release'
+    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
+    with:
+      service-name: crop-advisory-service
+      image-tag: ${{ github.event.release.tag_name }}
       environment: main
     secrets:
       HELM_REPO_PAT: ${{ secrets.HELM_REPO_PAT }}
