@@ -65,7 +65,7 @@ jobs:
     with:
       service-name: crop-advisory-service
       service-path: .
-      #fail-on-critical: "1"
+      fail-on-critical: "1"
 
   # ═══════════════════════════════════════════════════════════
   # 3. PR QUALITY GATE
@@ -117,7 +117,10 @@ jobs:
 
   # release → build + push release-tagged image
   publish-release:
-    if: github.event_name == 'release'
+    if: >-
+      github.event_name == 'release' &&
+      github.event.release.target_commitish == 'main' &&
+      github.event.release.prerelease == false
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
     with:
       service-name: crop-advisory-service
@@ -131,7 +134,10 @@ jobs:
   # release → values/values-prod.yaml
   cd-release:
     needs: [publish-release]
-    if: github.event_name == 'release'
+    if: >-
+      github.event_name == 'release' &&
+      github.event.release.target_commitish == 'main' &&
+      github.event.release.prerelease == false
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
     with:
       service-name: crop-advisory-service
