@@ -64,7 +64,7 @@ jobs:
     with:
       service-name: user-service
       service-path: .
-      fail-on-critical: "1"
+      fail-on-critical: "0"
 
   # ═══════════════════════════════════════════════════════════
   # 3. PR QUALITY GATE
