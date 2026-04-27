@@ -3,8 +3,7 @@
 # ════════════════════════════════════════════════════════════
 # PR:      code-quality + trivy scan (soft) → STOP
 # develop: code-quality + trivy scan (strict) → publish → cd (values-dev.yaml)
-# main:    retag SHA→semver (NO rebuild) → cd (values-prod.yaml)
-# release: publish release-tagged image → cd (values-prod.yaml)
+# release: publish release-tagged image → cd (values-prod.yaml) [PROD]
 # ════════════════════════════════════════════════════════════
 name: CI/CD — Crop Advisory Service
 
@@ -80,7 +79,7 @@ jobs:
       - run: echo "✅ All PR checks passed"
 
   # ═══════════════════════════════════════════════════════════
-  # 4. DOCKER PUBLISH
+  # 4. DOCKER PUBLISH (DEVELOP)
   # ═══════════════════════════════════════════════════════════
 
   # develop — build + push SHA-tagged image
@@ -96,20 +95,8 @@ jobs:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
-  # main — pull SHA image → retag to semver → push (NO rebuild)
-  publish-main:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
-    with:
-      service-name: crop-advisory-service
-      service-path: .
-      environment: main
-    secrets:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-
   # ═══════════════════════════════════════════════════════════
-  # 5. CD — Update Helm Values (triggers ArgoCD auto-sync)
+  # 5. CD (DEVELOP) — Update values-dev.yaml
   # ═══════════════════════════════════════════════════════════
 
   # develop → values/values-dev.yaml
@@ -124,20 +111,8 @@ jobs:
     secrets:
       HELM_REPO_PAT: ${{ secrets.HELM_REPO_PAT }}
 
-  # main → values/values-prod.yaml
-  cd-main:
-    needs: [publish-main]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
-    with:
-      service-name: crop-advisory-service
-      image-tag: ${{ needs.publish-main.outputs.image-tag }}
-      environment: main
-    secrets:
-      HELM_REPO_PAT: ${{ secrets.HELM_REPO_PAT }}
-
   # ═══════════════════════════════════════════════════════════
-  # 6. RELEASE — Tag-based prod deployment (e.g., v1.0.0)
+  # 6. RELEASE — Manual Tag-based Prod Deployment
   # ═══════════════════════════════════════════════════════════
 
   # release → build + push release-tagged image
@@ -148,6 +123,7 @@ jobs:
       service-name: crop-advisory-service
       service-path: .
       environment: main
+      image-tag: ${{ github.event.release.tag_name }}
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
