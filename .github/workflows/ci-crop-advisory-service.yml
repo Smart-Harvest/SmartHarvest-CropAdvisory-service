@@ -1,11 +1,11 @@
 # ════════════════════════════════════════════════════════════
-# SmartHarvest — Crop Advisory Service CI/CD
+# SmartHarvest — User Service CI/CD
 # ════════════════════════════════════════════════════════════
 # PR:      code-quality + trivy scan (soft) → STOP
-# develop: code-quality + trivy scan (strict) → publish → cd (values-dev.yaml)
+# develop: trivy scan (strict) → publish → cd (values-dev.yaml)
 # release: publish release-tagged image → cd (values-prod.yaml) [PROD]
 # ════════════════════════════════════════════════════════════
-name: CI/CD — Crop Advisory Service
+name: CI/CD — User Service
 
 on:
   push:
@@ -21,10 +21,10 @@ permissions:
 jobs:
 
   # ═══════════════════════════════════════════════════════════
-  # 1. CODE QUALITY (PR + develop only)
+  # 1. CODE QUALITY (PR only)
   # ═══════════════════════════════════════════════════════════
   sast:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    if: github.event_name == 'pull_request'
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_sast.yml@develop
     with:
       service-path: .
@@ -34,10 +34,10 @@ jobs:
 
   sca:
     needs: [sast]
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    if: github.event_name == 'pull_request'
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_sca.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       service-path: .
       runtime: python
     secrets:
@@ -53,17 +53,16 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-build.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       service-path: .
       fail-on-critical: "0"
 
   # develop — strict scan (fail-on-critical=1)
   trivy-develop:
-    needs: [sca]
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-build.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       service-path: .
       fail-on-critical: "1"
 
@@ -82,13 +81,12 @@ jobs:
   # 4. DOCKER PUBLISH (DEVELOP)
   # ═══════════════════════════════════════════════════════════
 
-  # develop — build + push SHA-tagged image
   publish-develop:
     needs: [trivy-develop]
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       service-path: .
       environment: develop
     secrets:
@@ -99,13 +97,12 @@ jobs:
   # 5. CD (DEVELOP) — Update values-dev.yaml
   # ═══════════════════════════════════════════════════════════
 
-  # develop → values/values-dev.yaml
   cd-develop:
     needs: [publish-develop]
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       image-tag: dev-${{ github.sha }}
       environment: develop
     secrets:
@@ -115,7 +112,6 @@ jobs:
   # 6. RELEASE — Manual Tag-based Prod Deployment
   # ═══════════════════════════════════════════════════════════
 
-  # release → build + push release-tagged image
   publish-release:
     if: >-
       github.event_name == 'release' &&
@@ -123,7 +119,7 @@ jobs:
       github.event.release.prerelease == false
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_docker-publish.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       service-path: .
       environment: main
       image-tag: ${{ github.event.release.tag_name }}
@@ -131,7 +127,6 @@ jobs:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
-  # release → values/values-prod.yaml
   cd-release:
     needs: [publish-release]
     if: >-
@@ -140,7 +135,7 @@ jobs:
       github.event.release.prerelease == false
     uses: Smart-Harvest/SmartHarvest-workflows/.github/workflows/_cd-template.yml@develop
     with:
-      service-name: crop-advisory-service
+      service-name: user-service
       image-tag: ${{ github.event.release.tag_name }}
       environment: main
     secrets:
